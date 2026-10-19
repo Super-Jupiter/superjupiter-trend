@@ -2,34 +2,35 @@
 // Copyright (c) 2026 SuperJupiter
 #ifndef SUPERJUPITER_TREND_H
 #define SUPERJUPITER_TREND_H
-#if defined(__FAST_MATH__) || (defined(__FINITE_MATH_ONLY__) && __FINITE_MATH_ONLY__ > 0)
+#if defined(__FAST_MATH__) ||                                                  \
+    (defined(__FINITE_MATH_ONLY__) && __FINITE_MATH_ONLY__ > 0)
 #error "SuperJupiter requires IEEE non-finite checks; disable fast-math"
 #endif
 #include <float.h>
-#include <math.h>
 #include <stddef.h>
 #include <stdint.h>
-#define SUPERJUPITER_TREND_VERSION "0.1.0"
+#define SUPERJUPITER_TREND_VERSION "0.1.1"
 namespace superjupiter {
 namespace trend {
 
 namespace detail {
-inline bool finite(double value) { return value == value && value >= -DBL_MAX && value <= DBL_MAX; }
-inline double oneMinusExpNegative(double ratio) {
-  // Stable at small elapsed/tau without requiring AVR's unavailable expm1.
-  if (ratio < 0.01) {
-    double term = ratio, total = ratio;
-    for (unsigned n = 2; n <= 12; ++n) {
-      term *= -ratio / n;
-      total += term;
-    }
-    return total;
-  }
-  return 1 - ::exp(-ratio);
+inline bool finite(double value) {
+  return value == value && value >= -DBL_MAX && value <= DBL_MAX;
+}
+constexpr size_t ringIndex(size_t head, size_t offset, size_t capacity) {
+  return offset < capacity - head ? head + offset : offset - (capacity - head);
 }
 } // namespace detail
 
-enum class Status { Ok, InvalidInput, InvalidTime, InvalidConfig, Insufficient, Gap, NumericError };
+enum class Status {
+  Ok,
+  InvalidInput,
+  InvalidTime,
+  InvalidConfig,
+  Insufficient,
+  Gap,
+  NumericError
+};
 struct Config {
   size_t minSamples;
   uint32_t minSpanMs, maxGapMs;
@@ -43,19 +44,24 @@ struct Result {
   double slopePerSecond, intercept;
 };
 template <size_t Capacity> class Trend {
-  static_assert(Capacity >= 2 && Capacity <= 65535, "Trend requires capacity 2..65535");
+  static_assert(Capacity >= 2 && Capacity <= 65535,
+                "Trend requires capacity 2..65535");
   double values_[Capacity];
   uint32_t intervals_[Capacity];
   size_t head_, count_;
   uint32_t last_;
   Config config_;
-  size_t index(size_t i) const { return (head_ + i) % Capacity; }
+  size_t index(size_t i) const { return detail::ringIndex(head_, i, Capacity); }
 
 public:
-  explicit Trend(Config config = Config()) : head_(0), count_(0), last_(0), config_(config) {}
+  explicit Trend(Config config = Config(Capacity < 3 ? Capacity : 3))
+      : head_(0), count_(0), last_(0), config_(config) {}
+  bool valid() const {
+    return !(config_.minSamples < 2 || config_.minSamples > Capacity ||
+             config_.maxGapMs == 0 || config_.maxGapMs >= 0x80000000UL);
+  }
   Status push(double value, uint32_t atMs) {
-    if (config_.minSamples < 2 || config_.minSamples > Capacity || config_.maxGapMs == 0 ||
-        config_.maxGapMs >= 0x80000000UL)
+    if (!valid())
       return Status::InvalidConfig;
     if (!detail::finite(value))
       return Status::InvalidInput;
@@ -75,6 +81,10 @@ public:
   }
   Result summary() const {
     Result r = {Status::Insufficient, count_, 0, 0, 0};
+    if (!valid()) {
+      r.status = Status::InvalidConfig;
+      return r;
+    }
     if (count_ < config_.minSamples)
       return r;
     double meanX = 0, meanY = 0;
@@ -106,8 +116,9 @@ public:
     }
     r.slopePerSecond = xy / xx;
     r.intercept = meanY - r.slopePerSecond * meanX;
-    if (!detail::finite(xx) || !detail::finite(xy) || !detail::finite(r.slopePerSecond) ||
-        !detail::finite(r.intercept) || xx <= 0) {
+    if (!detail::finite(xx) || !detail::finite(xy) ||
+        !detail::finite(r.slopePerSecond) || !detail::finite(r.intercept) ||
+        xx <= 0) {
       r.status = Status::NumericError;
       r.slopePerSecond = 0;
       r.intercept = 0;

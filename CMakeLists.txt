@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(SuperJupiterTrend VERSION 0.1.0 LANGUAGES CXX)
+project(SuperJupiterTrend VERSION 0.1.1 LANGUAGES CXX)
 
 set(_superjupiter_trend_top_level OFF)
 if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
@@ -19,6 +19,9 @@ target_compile_features(SuperJupiterTrend INTERFACE cxx_std_11)
 
 if(SUPERJUPITER_TREND_BUILD_TESTS)
   enable_testing()
+  add_executable(superjupiter-trend-review tests/review_regressions.cpp)
+  target_link_libraries(superjupiter-trend-review PRIVATE SuperJupiter::Trend)
+  add_test(NAME superjupiter-trend-review COMMAND superjupiter-trend-review)
   add_executable(superjupiter-trend-tests tests/test.cpp)
   target_link_libraries(superjupiter-trend-tests PRIVATE SuperJupiter::Trend)
   add_test(NAME superjupiter-trend-tests COMMAND superjupiter-trend-tests)
