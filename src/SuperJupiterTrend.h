@@ -5,13 +5,30 @@
 #if defined(__FAST_MATH__) || (defined(__FINITE_MATH_ONLY__) && __FINITE_MATH_ONLY__ > 0)
 #error "SuperJupiter requires IEEE non-finite checks; disable fast-math"
 #endif
-#include <cmath>
-#include <cstddef>
-#include <cstdint>
-#include <limits>
+#include <float.h>
+#include <math.h>
+#include <stddef.h>
+#include <stdint.h>
 #define SUPERJUPITER_TREND_VERSION "0.1.0"
 namespace superjupiter {
 namespace trend {
+
+namespace detail {
+inline bool finite(double value) { return value == value && value >= -DBL_MAX && value <= DBL_MAX; }
+inline double oneMinusExpNegative(double ratio) {
+  // Stable at small elapsed/tau without requiring AVR's unavailable expm1.
+  if (ratio < 0.01) {
+    double term = ratio, total = ratio;
+    for (unsigned n = 2; n <= 12; ++n) {
+      term *= -ratio / n;
+      total += term;
+    }
+    return total;
+  }
+  return 1 - ::exp(-ratio);
+}
+} // namespace detail
+
 enum class Status { Ok, InvalidInput, InvalidTime, InvalidConfig, Insufficient, Gap, NumericError };
 struct Config {
   size_t minSamples;
@@ -40,7 +57,7 @@ public:
     if (config_.minSamples < 2 || config_.minSamples > Capacity || config_.maxGapMs == 0 ||
         config_.maxGapMs >= 0x80000000UL)
       return Status::InvalidConfig;
-    if (!std::isfinite(value))
+    if (!detail::finite(value))
       return Status::InvalidInput;
     const uint32_t dt = count_ ? atMs - last_ : 0;
     if (count_ && (dt == 0 || dt >= 0x80000000UL))
@@ -89,8 +106,8 @@ public:
     }
     r.slopePerSecond = xy / xx;
     r.intercept = meanY - r.slopePerSecond * meanX;
-    if (!std::isfinite(xx) || !std::isfinite(xy) || !std::isfinite(r.slopePerSecond) ||
-        !std::isfinite(r.intercept) || xx <= 0) {
+    if (!detail::finite(xx) || !detail::finite(xy) || !detail::finite(r.slopePerSecond) ||
+        !detail::finite(r.intercept) || xx <= 0) {
       r.status = Status::NumericError;
       r.slopePerSecond = 0;
       r.intercept = 0;
